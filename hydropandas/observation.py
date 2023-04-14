@@ -507,6 +507,8 @@ class GroundwaterObs(Obs):
         to_wintertime=True,
         drop_duplicate_times=True,
         only_metadata=False,
+        origin='internet',
+        local_path=None,
     ):
         """download BRO groundwater observations from the server.
 
@@ -528,6 +530,12 @@ class GroundwaterObs(Obs):
         drop_duplicate_times : bool, optional
             if True rows with a duplicate time stamp are removed keeping only the
             first row. The default is True.
+        save_bro_export : str or None, optional
+            by default data from bro is not saved. if save_bro_export is a string, 
+            then a folder will be created with data. The default is None
+        data_origin : str, optional
+            by default data from bro is downloaded from broservices.nl, other option is
+            a local folder. The default is broservices.nl
 
         Returns
         -------
@@ -546,6 +554,8 @@ class GroundwaterObs(Obs):
             to_wintertime=to_wintertime,
             drop_duplicate_times=drop_duplicate_times,
             only_metadata=only_metadata,
+            origin=origin,
+            local_path=local_path,
         )
 
         return cls(
@@ -554,6 +564,7 @@ class GroundwaterObs(Obs):
             name=meta.pop("name"),
             x=meta.pop("x"),
             y=meta.pop("y"),
+            #filename=meta.pop("filename"),
             source=meta.pop("source"),
             unit=meta.pop("unit"),
             screen_bottom=meta.pop("screen_bottom"),

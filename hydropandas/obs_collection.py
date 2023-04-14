@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 def read_bro(
     extent=None,
     bro_id=None,
+    local_path=None,
     name="",
     tmin=None,
     tmax=None,
@@ -30,6 +31,7 @@ def read_bro(
     keep_all_obs=False,
     epsg=28992,
     ignore_max_obs=False,
+    origin='internet',
 ):
     """get all the observations within an extent or within a
     groundwatermonitoring net.
@@ -60,6 +62,9 @@ def read_bro(
         by default you get a prompt if you want to download over a 1000
         observations at once. if ignore_max_obs is True you won't get the
         prompt. The default is False
+    save_bro_export : str or None, optional
+        by default data from bro is not saved. if save_bro_export is a string, 
+        then a folder will be created with data. The default is None
 
     Returns
     -------
@@ -78,6 +83,8 @@ def read_bro(
         keep_all_obs=keep_all_obs,
         epsg=epsg,
         ignore_max_obs=ignore_max_obs,
+        origin=origin,
+        local_path=local_path,
     )
 
     return oc
@@ -937,6 +944,7 @@ class ObsCollection(pd.DataFrame):
         cls,
         extent=None,
         bro_id=None,
+        local_path=None,
         name="",
         tmin=None,
         tmax=None,
@@ -944,6 +952,7 @@ class ObsCollection(pd.DataFrame):
         keep_all_obs=True,
         epsg=28992,
         ignore_max_obs=False,
+        origin='internet',
     ):
         """get all the observations within an extent or within a
         groundwatermonitoring net.
@@ -956,6 +965,8 @@ class ObsCollection(pd.DataFrame):
             [xmin, xmax, ymin, ymax]
         bro_id : str or None, optional
             starts with 'GMN'.
+        local_path : str or None, optional
+            filename of BRO zip file.
         name : str, optional
             name of the observation collection
         tmin : str or None, optional
@@ -974,6 +985,9 @@ class ObsCollection(pd.DataFrame):
             by default you get a prompt if you want to download over a 1000
             observations at once. if ignore_max_obs is True you won't get the
             prompt. The default is False
+        save_bro_export : str or None, optional
+            by default data from bro is not saved. if save_bro_export is a string, 
+            then a folder will be created with data. The default is None
 
         Returns
         -------
@@ -982,7 +996,8 @@ class ObsCollection(pd.DataFrame):
 
         """
 
-        from .io.bro import get_obs_list_from_extent, get_obs_list_from_gmn
+        from .io.bro import get_obs_list_from_extent, get_obs_list_from_gmn, get_obs_list_from_file
+        
 
         if bro_id is None and (extent is not None):
             obs_list = get_obs_list_from_extent(
@@ -994,6 +1009,7 @@ class ObsCollection(pd.DataFrame):
                 keep_all_obs=keep_all_obs,
                 epsg=epsg,
                 ignore_max_obs=ignore_max_obs,
+                local_path=local_path,
             )
             meta = {}
         elif bro_id is not None:
@@ -1004,8 +1020,27 @@ class ObsCollection(pd.DataFrame):
                 keep_all_obs=keep_all_obs,
             )
             name = meta.pop("name")
+        elif (local_path is not None) and (origin=='local'):
+            obs_list = get_obs_list_from_file(
+                local_path,
+                obs.GroundwaterObs,
+                keep_all_obs=keep_all_obs,
+                ignore_max_obs=ignore_max_obs,
+                origin=origin,
+            )
+            meta = {}
+        elif (local_path is not None) and (origin=='local_bronhouder'):
+            obs_list = get_obs_list_from_file(
+                local_path,
+                obs.GroundwaterObs,
+                only_metadata=True, # only metadata available
+                keep_all_obs=keep_all_obs,
+                ignore_max_obs=ignore_max_obs,
+                origin=origin,
+            )
+            meta = {}
         else:
-            raise ValueError("specify bro_id or extent")
+            raise ValueError("specify bro_id, extent or file name")
 
         obs_df = util._obslist_to_frame(obs_list)
 
