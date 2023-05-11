@@ -11,8 +11,6 @@ import pandas as pd
 import requests
 from pyproj import Transformer
 from tqdm import tqdm
-import os
-from pathlib import Path, PurePath
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +90,7 @@ def get_obs_list_from_gmn(bro_id, ObsClass, only_metadata=False, keep_all_obs=Tr
     return obs_list, meta
 
 
-def get_bro_groundwater(bro_id, tube_nr=None, 
-                        only_metadata=False,
-                        save_bro_export=None,
-                        origin='internet',
-                        local_path=None,
-                        **kwargs):
+def get_bro_groundwater(bro_id, tube_nr=None, only_metadata=False, **kwargs):
     """get bro groundwater measurement from a GLD id or a GMW id with a
     filter number.
 
@@ -112,12 +105,6 @@ def get_bro_groundwater(bro_id, tube_nr=None,
     only_metadata : bool, optional
         if True download only metadata, significantly faster. The default
         is False.
-    save_bro_export : str or None, optional
-        by default data from bro is not saved. if save_bro_export is a string, 
-        then a folder will be created with data. The default is None
-    data_origin : str, optional
-        by default data from bro is downloaded from broservices.nl, other option is
-        a local folder. The default is broservices.nl
     **kwargs :
         passes to measurements_from_gld.
 
@@ -139,17 +126,14 @@ def get_bro_groundwater(bro_id, tube_nr=None,
     if bro_id.startswith("GLD"):
         if only_metadata:
             raise ValueError("cannot get metadata from gld id")
-        return measurements_from_gld(bro_id, origin=origin, 
-                                     local_path=local_path, **kwargs)
+        return measurements_from_gld(bro_id, **kwargs)
 
     elif bro_id.startswith("GMW"):
         if tube_nr is None:
             raise ValueError("if bro_id is GMW a filternumber should be specified")
 
-        meta = get_metadata_from_gmw(bro_id, tube_nr, 
-                                     origin=origin, local_path=local_path)
-        gld_id = get_gld_id_from_gmw(bro_id, tube_nr,
-                                     origin=origin, local_path=local_path)
+        meta = get_metadata_from_gmw(bro_id, tube_nr)
+        gld_id = get_gld_id_from_gmw(bro_id, tube_nr)
 
         if gld_id is None:
             meta["name"] = f"{bro_id}_{tube_nr}"
@@ -161,12 +145,10 @@ def get_bro_groundwater(bro_id, tube_nr=None,
             empty_df = pd.DataFrame()
             return empty_df, meta
 
-        return measurements_from_gld(gld_id, origin=origin, 
-                                     local_path=local_path, **kwargs)
+        return measurements_from_gld(gld_id, **kwargs)
 
 
-def get_gld_id_from_gmw(bro_id, tube_nr, quality_regime="IMBRO/A", origin='internet',
-                        local_path=None):
+def get_gld_id_from_gmw(bro_id, tube_nr, quality_regime="IMBRO/A"):
     """get bro_id of a grondwterstandendossier (gld) from a bro_id of a
     grondwatermonitoringsput (gmw).
 
@@ -195,22 +177,9 @@ def get_gld_id_from_gmw(bro_id, tube_nr, quality_regime="IMBRO/A", origin='inter
     if not bro_id.startswith("GMW"):
         raise ValueError("bro id should start with GMW")
 
-    if origin == 'internet':
-        url = f"https://publiek.broservices.nl/gm/v1/gmw-relations/{bro_id}"
-        req = requests.get(url)
-    elif origin == 'local':
-        # open local file, without tmin and tmax restrictions
-        req = xml.etree.ElementTree.parse(os.path.join(local_path,bro_id+'.xml'))
-    else:
-        raise ValueError(f'invalid value for origin {origin}')
-        
-    if (origin == 'internet') and (local_path is not None):
-         # save downloaded data
-         pass
-         #tree = xml.etree.ElementTree.fromstring(req.text)
-         #with open(os.path.join(local_path,f'{bro_id}.xml'),  'w') as f:
-         #    print(xml.etree.ElementTree.tostring(req).decode(), file=f)
-        
+    url = f"https://publiek.broservices.nl/gm/v1/gmw-relations/{bro_id}"
+    req = requests.get(url)
+
     if req.status_code > 200:
         print(req.json()["errors"][0]["message"])
 
@@ -258,8 +227,8 @@ def get_gld_id_from_gmw(bro_id, tube_nr, quality_regime="IMBRO/A", origin='inter
 
 
 def measurements_from_gld(
-    bro_id, tmin=None, tmax=None, to_wintertime=True, drop_duplicate_times=True,
-    origin='internet', local_path=None,):
+    bro_id, tmin=None, tmax=None, to_wintertime=True, drop_duplicate_times=True
+):
     """get measurements and metadata from a grondwaterstandonderzoek (gld)
     bro_id
 
@@ -278,12 +247,6 @@ def measurements_from_gld(
     drop_duplicate_times : bool, optional
         if True rows with a duplicate time stamp are removed keeping only the
         first row. The default is True.
-    save_bro_export : str or None, optional
-        by default data from bro is not saved. if save_bro_export is a string, 
-        then a folder will be created with data. The default is None
-    data_origin : str, optional
-        by default data from bro is downloaded from broservices.nl, other option is
-        a local folder. The default is broservices.nl
     add_registration_history : bool, optional
         if True the registration history is added to the metadata. The defualt
         is True.
@@ -304,26 +267,18 @@ def measurements_from_gld(
     if not bro_id.startswith("GLD"):
         raise ValueError("can only get observations if bro id starts with GLD")
 
-    if origin == 'internet':
-        url = "https://publiek.broservices.nl/gm/gld/v1/objects/{}"
-        params = {}
-        if tmin is not None:
-            tmin = pd.to_datetime(tmin)
-            params["observationPeriodBeginDate"] = tmin.strftime("%Y-%m-%d")
-        if tmax is not None:
-            tmax = pd.to_datetime(tmax)
-            params["observationPeriodEndDate"] = tmax.strftime("%Y-%m-%d")
-        req = requests.get(url.format(bro_id), params=params)
-    
-        if req.status_code > 200:
-            print(req.json()["errors"][0]["message"])
-            
-        tree = xml.etree.ElementTree.fromstring(req.text)
-    elif origin == 'local':
-        # open local file, without tmin and tmax restrictions
-        tree = xml.etree.ElementTree.parse(os.path.join(local_path,bro_id+'.xml'))
-    else:
-        raise ValueError(f'invalid value for origin {origin}')
+    url = "https://publiek.broservices.nl/gm/gld/v1/objects/{}"
+    params = {}
+    if tmin is not None:
+        tmin = pd.to_datetime(tmin)
+        params["observationPeriodBeginDate"] = tmin.strftime("%Y-%m-%d")
+    if tmax is not None:
+        tmax = pd.to_datetime(tmax)
+        params["observationPeriodEndDate"] = tmax.strftime("%Y-%m-%d")
+    req = requests.get(url.format(bro_id), params=params)
+
+    if req.status_code > 200:
+        print(req.json()["errors"][0]["message"])
 
     ns = {
         "ns11": "http://www.broservices.nl/xsd/dsgld/1.0",
@@ -333,12 +288,7 @@ def measurements_from_gld(
         "om": "http://www.opengis.net/om/2.0",
     }
 
-    
-    
-    if (origin == 'internet') and (local_path is not None):
-        # save downloaded data
-        with open(os.path.join(local_path,f'{bro_id}.xml'),  'w') as f:
-            print(xml.etree.ElementTree.tostring(tree).decode(), file=f)
+    tree = xml.etree.ElementTree.fromstring(req.text)
 
     glds = tree.findall(".//ns11:GLD_O", ns)
     if len(glds) != 1:
@@ -391,11 +341,7 @@ def measurements_from_gld(
     df = df.loc[tmin:tmax]
 
     # add metadata from gmw
-    meta.update(get_metadata_from_gmw(meta["monitoring_well"], meta["tube_nr"],
-                                      origin=origin, local_path=local_path))
-    
-    if origin.startswith('local'):
-        meta["filename"] = os.path.join(local_path,bro_id+'.xml')
+    meta.update(get_metadata_from_gmw(meta["monitoring_well"], meta["tube_nr"]))
 
     return df, meta
 
@@ -490,7 +436,7 @@ def get_full_metadata_from_gmw(bro_id, tube_nr):
     return meta
 
 
-def get_metadata_from_gmw(bro_id, tube_nr, origin='internet', local_path=None,):
+def get_metadata_from_gmw(bro_id, tube_nr):
     """get selection of metadata for a groundwater monitoring well.
     coordinates, ground_level, tube_top and tube screen
 
@@ -527,23 +473,11 @@ def get_metadata_from_gmw(bro_id, tube_nr, origin='internet', local_path=None,):
     if not isinstance(tube_nr, int):
         raise TypeError(f"expected integer got {type(tube_nr)}")
 
-    if origin == 'internet':
-        url = f"https://publiek.broservices.nl/gm/gmw/v1/objects/{bro_id}"
-        req = requests.get(url)
-    
-        # read results
-        tree = xml.etree.ElementTree.fromstring(req.text)
-    elif origin == 'local':
-        # open local file
-        # CHECK
-        tree = xml.etree.ElementTree.parse(os.path.join(local_path,bro_id+'.xml'))
-    else:
-        raise ValueError(f'invalid value for origin {origin}')
-        
-    if (origin == 'internet') and (local_path is not None):
-        # save downloaded data
-        with open(os.path.join(local_path,f'{bro_id}.xml'),  'w') as f:
-            print(xml.etree.ElementTree.tostring(tree).decode(), file=f)
+    url = f"https://publiek.broservices.nl/gm/gmw/v1/objects/{bro_id}"
+    req = requests.get(url)
+
+    # read results
+    tree = xml.etree.ElementTree.fromstring(req.text)
 
     gmws = tree.findall(".//dsgmw:GMW_PO", ns)
     if len(gmws) != 1:
@@ -604,7 +538,6 @@ def get_obs_list_from_extent(
     keep_all_obs=True,
     epsg=28992,
     ignore_max_obs=False,
-    local_path=None,
 ):
     """get a list of gmw observations within an extent.
 
@@ -629,9 +562,6 @@ def get_obs_list_from_extent(
         by default you get a prompt if you want to download over a 1000
         observations at once. if ignore_max_obs is True you won't get the
         prompt. The default is False
-    save_bro_export : str or None, optional
-        by default data from bro is not saved. if save_bro_export is a string, 
-        then a folder will be created with data. The default is None
 
     Raises
     ------
@@ -671,20 +601,6 @@ def get_obs_list_from_extent(
 
     # read results
     tree = xml.etree.ElementTree.fromstring(req.text)
-    
-    # save to file?
-    if local_path is not None:
-        local_path = os.path.join(local_path,
-           f'bro_{extent[0]}_{extent[1]}_{extent[2]}_{extent[3]}')
-        try:
-            #os.makedir(save_bro_export)
-            Path(local_path).mkdir(parents=True, exist_ok=True)
-        except:
-            logger.warning(f'create of directory {local_path} failed'
-                           f'save of BRO export is disabled')
-            local_path=None
-        with open(os.path.join(local_path,'bro_gmws.xml'),  'w') as f:
-            print(xml.etree.ElementTree.tostring(tree).decode(), file=f)
 
     ns = {
         "dsgmw": "http://www.broservices.nl/xsd/dsgmw/1.1",
@@ -723,8 +639,6 @@ def get_obs_list_from_extent(
                 tmin=tmin,
                 tmax=tmax,
                 only_metadata=only_metadata,
-                origin='internet',
-                local_path=local_path,
             )
             if o.empty:
                 logger.warning(
@@ -735,134 +649,5 @@ def get_obs_list_from_extent(
                     obs_list.append(o)
             else:
                 obs_list.append(o)
-
-    if local_path is not None:
-        # TO DO: move all downloaded files to archive
-        # and implement that archive is read 
-        pass
-
-    return obs_list
-
-def get_obs_list_from_file(
-    local_path,
-    ObsClass,
-    only_metadata=False,
-    keep_all_obs=True,
-    ignore_max_obs=False,
-    origin='local',
-):
-    """get a list of gmw observations from BRO zip file.
-
-
-    Parameters
-    ----------
-    local_path : str,
-        filename of BRO zip file.
-    ObsClass : type
-        class of the observations, e.g. GroundwaterObs or WaterlvlObs
-    tmin : str or None, optional
-        start time of observations. The default is None.
-    tmax : str or None, optional
-        end time of observations. The default is None.
-    only_metadata : bool, optional
-        if True download only metadata, significantly faster. The default
-        is False.
-    epsg : int, optional
-        epsg code of the extent. The default is 28992 (RD).
-    ignore_max_obs : bool, optional
-        by default you get a prompt if you want to download over a 1000
-        observations at once. if ignore_max_obs is True you won't get the
-        prompt. The default is False
-
-    Raises
-    ------
-
-        DESCRIPTION.
-
-    Returns
-    -------
-    obs_list : TYPE
-        DESCRIPTION.
-
-    """
-    
-    # read file
-    if Path(local_path).is_file():
-        # local_path is reference to xml file
-        tree = xml.etree.ElementTree.parse(local_path)
-        # update variable for remaining of script
-        local_path = PurePath(local_path).parent
-    elif Path(os.path.join(local_path,'bro_gmws.xml')).exists():
-        # files saved by Hydropands
-        tree = xml.etree.ElementTree.parse(os.path.join(local_path,'bro_gmws.xml'))
-    elif Path(os.path.join(local_path,'Bericht van levering.xml')).exists():
-        # files in manual download Broloket
-        tree = xml.etree.ElementTree.parse(os.path.join(local_path,'Bericht van levering.xml'))
-    elif Path(local_path).exists() and origin == 'local_bronhouder':
-        # files for upload in BRO Bronhoudersportaal
-        # there is no overall file with available files
-        # fetch gmws_ids from directory
-        (Path(r'd:\Data\bro-import\hansweert').glob('*.xml'))
-        Out[8]: <generator object Path.glob at 0x000001975BCD4900>
-
-        Path(r'd:\Data\bro-import\hansweert').glob('*.xml')
-        Out[9]: <generator object Path.glob at 0x000001975BCD4D60>
-
-        for p in Path(r'd:\Data\bro-import\hansweert').glob('*.xml'):
-            print(p)
-        
-    else:
-        raise ValueError(f'XML file with GMWS cannot be found in folder {local_path}')
-    
-
-    ns = {
-        "dsgmw": "http://www.broservices.nl/xsd/dsgmw/1.1",
-        "gml": "http://www.opengis.net/gml/3.2",
-        "brocom": "http://www.broservices.nl/xsd/brocommon/3.0",
-    }
-
-    if tree.find(".//brocom:responseType", ns).text == "rejection":
-        raise RuntimeError(tree.find(".//brocom:rejectionReason", ns).text)
-
-    gmws_ids = np.unique(
-        [gmw.text for gmw in tree.findall(".//dsgmw:GMW_C//brocom:broId", ns)]
-    )
-
-    if len(gmws_ids) > 1000:
-        ans = input(
-            f"You requested to process {len(gmws_ids)} observations, this can"
-            "take a while. Are you sure you want to continue [Y/n]? "
-        )
-        if ans not in ["Y", "y", "yes", "Yes", "YES"]:
-            return []
-
-    obs_list = []
-    for gmw_id in tqdm(gmws_ids):
-        gmws = tree.findall(f'.//*[brocom:broId="{gmw_id}"]', ns)
-        if len(gmws) < 1:
-            raise RuntimeError("unexpected")
-        else:
-            gmw = gmws[0]
-
-        ntubes = int(gmw.find("dsgmw:numberOfMonitoringTubes", ns).text)
-        for tube_nr in range(1, ntubes + 1):
-            o = ObsClass.from_bro(
-                gmw_id,
-                tube_nr=tube_nr,
-                only_metadata=only_metadata,
-                origin=origin,
-                local_path=local_path,
-            )
-            if o.empty:
-                logger.warning(
-                    f"no measurements found for gmw_id {gmw_id} and tube number"
-                    f"{tube_nr}"
-                )
-                if keep_all_obs:
-                    obs_list.append(o)
-            else:
-                obs_list.append(o)
-    
-    
 
     return obs_list
